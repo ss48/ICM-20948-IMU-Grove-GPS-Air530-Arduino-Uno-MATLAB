@@ -1,88 +1,121 @@
 #include <Wire.h>
 #include <SoftwareSerial.h>
 #include <TinyGPSPlus.h>
-#include "ICM_20948.h"      // SparkFun ICM-20948 library
+#include "Waveshare_10Dof-D.h"
 
-// -------- GPS Air530 via SoftwareSerial ----------
-static const int GPS_RX_PIN = 10;  // GPS TX -> Arduino D10
-static const int GPS_TX_PIN = 11;  // GPS RX -> Arduino D11 (optional)
+// ---------- GPS on SoftwareSerial ----------
+static const int GPS_RX_PIN = 10;  // GPS TX -> D10
+static const int GPS_TX_PIN = 11;  // GPS RX -> D11 (optional)
 SoftwareSerial gpsSerial(GPS_RX_PIN, GPS_TX_PIN);
 TinyGPSPlus gps;
 
-// -------- ICM-20948 IMU object -------------------
-ICM_20948_I2C imu;
+// ---------- IMU / Pressure ----------
+bool gbSenserConnectState = false;
 
 void setup() {
-  Serial.begin(115200);      // USB to MATLAB
-  gpsSerial.begin(9600);     // Air530 default baud
+  Serial.begin(115200);     // USB -> PC / MATLAB
+  gpsSerial.begin(9600);    // Air530 NMEA baud
   Wire.begin();
 
-  // -------- Initialize IMU --------
-  bool initialized = false;
-  while (!initialized) {
-    imu.begin(Wire, 0x68);   // ICM-20948 default I2C address
-    if (imu.status == ICM_20948_Stat_Ok) {
-      initialized = true;
-      Serial.println("ICM-20948 OK");
-    } else {
-      Serial.println("IMU init failed, retrying...");
-      delay(500);
-    }
+  // Init IMU + pressure using Waveshare API
+  IMU_EN_SENSOR_TYPE motionSensorType, pressureType;
+  imuInit(&motionSensorType, &pressureType);
+
+  Serial.println("Waveshare 10DOF IMU + GPS");
+
+  if (IMU_EN_SENSOR_TYPE_ICM20948 == motionSensorType) {
+    Serial.println("Motion sensor: ICM-20948");
+  } else {
+    Serial.println("Motion sensor: NULL");
   }
 
-  Serial.println("GPS + IMU streaming ready...");
+  if (IMU_EN_SENSOR_TYPE_BMP280 == pressureType) {
+    Serial.println("Pressure sensor: BMP280");
+  } else {
+    Serial.println("Pressure sensor: NULL");
+  }
+
+  delay(1000);
 }
 
 void loop() {
-  // -------- Read GPS continuously --------
+  // --------- Update GPS parser ---------
   while (gpsSerial.available() > 0) {
     gps.encode(gpsSerial.read());
   }
 
-  // -------- Read IMU --------
-  imu.getAGMT();  
+  // --------- Read IMU & pressure ---------
+  IMU_ST_ANGLES_DATA stAngles;
+  IMU_ST_SENSOR_DATA stGyroRawData;
+  IMU_ST_SENSOR_DATA stAccelRawData;
+  IMU_ST_SENSOR_DATA stMagnRawData;
+  int32_t s32PressureVal = 0, s32TemperatureVal = 0, s32AltitudeVal = 0;
 
-  float ax = imu.accX();
-  float ay = imu.accY();
-  float az = imu.accZ();
+  imuDataGet(&stAngles, &stGyroRawData, &stAccelRawData, &stMagnRawData);
+  pressSensorDataGet(&s32TemperatureVal, &s32PressureVal, &s32AltitudeVal);
 
-  float gx = imu.gyrX();
-  float gy = imu.gyrY();
-  float gz = imu.gyrZ();
+  // Convert to nice units
+  float roll  = stAngles.fRoll;     // deg
+  float pitch = stAngles.fPitch;    // deg
+  float yaw   = stAngles.fYaw;      // deg
 
-  float mx = imu.magX();
-  float my = imu.magY();
-  float mz = imu.magZ();
+  float accX = stAccelRawData.s16X;
+  float accY = stAccelRawData.s16Y;
+  float accZ = stAccelRawData.s16Z;
 
-  // -------- GPS values --------
-  double lat = NAN, lon = NAN, alt = NAN;
+  float gyroX = stGyroRawData.s16X;
+  float gyroY = stGyroRawData.s16Y;
+  float gyroZ = stGyroRawData.s16Z;
+
+  float magX = stMagnRawData.s16X;
+  float magY = stMagnRawData.s16Y;
+  float magZ = stMagnRawData.s16Z;
+
+  float press_hPa = (float)s32PressureVal / 100.0f;      // hPa
+  float alt_m     = (float)s32AltitudeVal / 100.0f;      // m
+  float temp_C    = (float)s32TemperatureVal / 100.0f;   // °C
+
+  // --------- GPS values ---------
+  double lat = NAN, lon = NAN, alt_gps = NAN;
 
   if (gps.location.isValid()) {
     lat = gps.location.lat();
     lon = gps.location.lng();
   }
-
   if (gps.altitude.isValid()) {
-    alt = gps.altitude.meters();
+    alt_gps = gps.altitude.meters();
   }
 
-  // -------- Output CSV to MATLAB --------
-  Serial.print(ax, 6); Serial.print(',');
-  Serial.print(ay, 6); Serial.print(',');
-  Serial.print(az, 6); Serial.print(',');
+  // --------- CSV output for MATLAB ---------
+  // roll,pitch,yaw,
+  Serial.print(roll, 4);  Serial.print(',');
+  Serial.print(pitch, 4); Serial.print(',');
+  Serial.print(yaw, 4);   Serial.print(',');
 
-  Serial.print(gx, 6); Serial.print(',');
-  Serial.print(gy, 6); Serial.print(',');
-  Serial.print(gz, 6); Serial.print(',');
+  // accX,accY,accZ,
+  Serial.print(accX, 4);  Serial.print(',');
+  Serial.print(accY, 4);  Serial.print(',');
+  Serial.print(accZ, 4);  Serial.print(',');
 
-  Serial.print(mx, 6); Serial.print(',');
-  Serial.print(my, 6); Serial.print(',');
-  Serial.print(mz, 6); Serial.print(',');
+  // gyroX,gyroY,gyroZ,
+  Serial.print(gyroX, 4); Serial.print(',');
+  Serial.print(gyroY, 4); Serial.print(',');
+  Serial.print(gyroZ, 4); Serial.print(',');
 
-  Serial.print(lat, 8); Serial.print(',');
-  Serial.print(lon, 8); Serial.print(',');
-  Serial.println(alt, 2);
+  // magX,magY,magZ,
+  Serial.print(magX, 4);  Serial.print(',');
+  Serial.print(magY, 4);  Serial.print(',');
+  Serial.print(magZ, 4);  Serial.print(',');
 
-  delay(10);  // ~100 Hz output rate
+  // press_hPa,alt_m,temp_C,
+  Serial.print(press_hPa, 2); Serial.print(',');
+  Serial.print(alt_m, 2);     Serial.print(',');
+  Serial.print(temp_C, 2);    Serial.print(',');
+
+  // lat,lon,alt_gps
+  Serial.print(lat, 8);   Serial.print(',');
+  Serial.print(lon, 8);   Serial.print(',');
+  Serial.println(alt_gps, 2);
+
+  delay(50);  // ~20 Hz output
 }
-
