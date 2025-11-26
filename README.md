@@ -1,6 +1,4 @@
-FULL STEP-BY-STEP GUIDE
-
-to get your ICM-20948 IMU + Grove GPS Air530 + Arduino Uno + MATLAB working together.
+STEP-BY-STEP GUIDE to get ICM-20948 IMU + Grove GPS Air530 + Arduino Uno + MATLAB working together.
 
 This includes:
 
@@ -12,7 +10,7 @@ Uploading a ready-to-use Arduino sketch
 
 MATLAB code to read data, run complementary filter, and fuse GPS + IMU
 
-Let’s go one clean step at a time.
+
 
 STEP 1 — Wire the hardware
  ICM-20948 (I²C)
