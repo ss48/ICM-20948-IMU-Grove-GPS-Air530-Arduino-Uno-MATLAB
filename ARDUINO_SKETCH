@@ -1,1 +1,88 @@
+#include <Wire.h>
+#include <SoftwareSerial.h>
+#include <TinyGPSPlus.h>
+#include "ICM_20948.h"      // SparkFun ICM-20948 library
+
+// -------- GPS Air530 via SoftwareSerial ----------
+static const int GPS_RX_PIN = 10;  // GPS TX -> Arduino D10
+static const int GPS_TX_PIN = 11;  // GPS RX -> Arduino D11 (optional)
+SoftwareSerial gpsSerial(GPS_RX_PIN, GPS_TX_PIN);
+TinyGPSPlus gps;
+
+// -------- ICM-20948 IMU object -------------------
+ICM_20948_I2C imu;
+
+void setup() {
+  Serial.begin(115200);      // USB to MATLAB
+  gpsSerial.begin(9600);     // Air530 default baud
+  Wire.begin();
+
+  // -------- Initialize IMU --------
+  bool initialized = false;
+  while (!initialized) {
+    imu.begin(Wire, 0x68);   // ICM-20948 default I2C address
+    if (imu.status == ICM_20948_Stat_Ok) {
+      initialized = true;
+      Serial.println("ICM-20948 OK");
+    } else {
+      Serial.println("IMU init failed, retrying...");
+      delay(500);
+    }
+  }
+
+  Serial.println("GPS + IMU streaming ready...");
+}
+
+void loop() {
+  // -------- Read GPS continuously --------
+  while (gpsSerial.available() > 0) {
+    gps.encode(gpsSerial.read());
+  }
+
+  // -------- Read IMU --------
+  imu.getAGMT();  
+
+  float ax = imu.accX();
+  float ay = imu.accY();
+  float az = imu.accZ();
+
+  float gx = imu.gyrX();
+  float gy = imu.gyrY();
+  float gz = imu.gyrZ();
+
+  float mx = imu.magX();
+  float my = imu.magY();
+  float mz = imu.magZ();
+
+  // -------- GPS values --------
+  double lat = NAN, lon = NAN, alt = NAN;
+
+  if (gps.location.isValid()) {
+    lat = gps.location.lat();
+    lon = gps.location.lng();
+  }
+
+  if (gps.altitude.isValid()) {
+    alt = gps.altitude.meters();
+  }
+
+  // -------- Output CSV to MATLAB --------
+  Serial.print(ax, 6); Serial.print(',');
+  Serial.print(ay, 6); Serial.print(',');
+  Serial.print(az, 6); Serial.print(',');
+
+  Serial.print(gx, 6); Serial.print(',');
+  Serial.print(gy, 6); Serial.print(',');
+  Serial.print(gz, 6); Serial.print(',');
+
+  Serial.print(mx, 6); Serial.print(',');
+  Serial.print(my, 6); Serial.print(',');
+  Serial.print(mz, 6); Serial.print(',');
+
+  Serial.print(lat, 8); Serial.print(',');
+  Serial.print(lon, 8); Serial.print(',');
+  Serial.println(alt, 2);
+
+  delay(10);  // ~100 Hz output rate
+}
 
